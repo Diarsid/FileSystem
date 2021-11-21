@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.concurrent.Executor;
 
 import diarsid.filesystem.api.FSEntry;
+import diarsid.filesystem.api.FileSystem;
 import diarsid.support.callbacks.ValueCallback;
 import diarsid.support.callbacks.groups.ActiveCallback;
 import diarsid.support.callbacks.groups.AsyncValueCallbacks;
@@ -14,12 +15,12 @@ import static java.util.Collections.singletonList;
 
 import static diarsid.support.concurrency.ThreadUtils.currentThreadTrack;
 
-public class Changes {
+public class ChangesImpl implements FileSystem.Changes {
 
     private final AsyncValueCallbacks<List<FSEntry>> pathsAddedCallbacks;
     private final AsyncValueCallbacks<List<Path>> pathsRemovedCallbacks;
 
-    public Changes(NamedThreadSource namedThreadSource) {
+    public ChangesImpl(NamedThreadSource namedThreadSource) {
         Executor executor = namedThreadSource.newNamedCachedThreadPool("filesystem.activities");
         this.pathsAddedCallbacks = new AsyncValueCallbacks<>(executor);
         this.pathsRemovedCallbacks = new AsyncValueCallbacks<>(executor);
@@ -43,10 +44,12 @@ public class Changes {
         this.pathsRemovedCallbacks.callAndAwait(paths);
     }
 
+    @Override
     public ActiveCallback<ValueCallback<List<FSEntry>>> listenForEntriesAdded(ValueCallback<List<FSEntry>> callback) {
         return this.pathsAddedCallbacks.add(callback);
     }
 
+    @Override
     public ActiveCallback<ValueCallback<List<Path>>> listenForEntriesRemoved(ValueCallback<List<Path>> callback) {
         return this.pathsRemovedCallbacks.add(callback);
     }

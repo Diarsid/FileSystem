@@ -128,9 +128,9 @@ public class LocalFileSystem implements FileSystem {
     private final Desktop desktop;
     private final Predicate<FSEntry> notIgnored;
     private final PathMove pathMove;
-    private final Changes changes;
+    private final ChangesImpl changes;
 
-    LocalFileSystem(
+    public LocalFileSystem(
             Ignores ignores,
             NamedThreadSource namedThreadSource,
             java.nio.file.FileSystem fileSystem) {
@@ -141,7 +141,7 @@ public class LocalFileSystem implements FileSystem {
         this.desktop = getDesktop();
         this.notIgnored = this.ignores::isNotIgnored;
         this.pathMove = new PathMove();
-        this.changes = new Changes(namedThreadSource);
+        this.changes = new ChangesImpl(namedThreadSource);
 
         this.changes.listenForEntriesRemoved(this::removeWatchers);
         this.changes.listenForEntriesAdded(this::createWatchersForEntries);

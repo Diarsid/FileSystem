@@ -7,12 +7,25 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 import diarsid.files.Extensions;
-import diarsid.filesystem.impl.local.Changes;
+import diarsid.filesystem.api.ignoring.Ignores;
+import diarsid.filesystem.impl.local.LocalFileSystem;
 import diarsid.filesystem.impl.local.ProgressTrackerBack;
+import diarsid.support.callbacks.ValueCallback;
+import diarsid.support.callbacks.groups.ActiveCallback;
+import diarsid.support.concurrency.threads.NamedThreadSource;
 
+import static java.nio.file.FileSystems.getDefault;
 import static java.util.Objects.isNull;
 
 public interface FileSystem {
+
+    FileSystem DEFAULT_INSTANCE = new LocalFileSystem(
+            Ignores.INSTANCE,
+            new NamedThreadSource(LocalFileSystem.class.getSimpleName()), getDefault());
+
+    static FileSystem newInstance(Ignores ignores, NamedThreadSource namedThreadSource, java.nio.file.FileSystem fileSystem) {
+        return new LocalFileSystem(ignores, namedThreadSource, fileSystem);
+    }
 
     static String getNameFrom(Path path) {
         String name;
@@ -24,6 +37,13 @@ public interface FileSystem {
             name = fileName.toString();
         }
         return name;
+    }
+
+    interface Changes {
+
+        ActiveCallback<ValueCallback<List<FSEntry>>> listenForEntriesAdded(ValueCallback<List<FSEntry>> callback);
+
+        ActiveCallback<ValueCallback<List<Path>>> listenForEntriesRemoved(ValueCallback<List<Path>> callback);
     }
 
     Directory machineDirectory();
@@ -105,5 +125,4 @@ public interface FileSystem {
     Changes changes();
 
     void watch(Directory directory);
-
 }
