@@ -2,8 +2,8 @@ package diarsid.files;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import diarsid.filesystem.api.File;
 
@@ -11,10 +11,10 @@ import static java.util.Objects.isNull;
 
 public class Extensions {
 
-    private final HashMap<String, Extension> extensionsByNames;
+    private final ConcurrentHashMap<String, Extension> extensionsByNames;
 
     public Extensions() {
-        this.extensionsByNames = new HashMap<>();
+        this.extensionsByNames = new ConcurrentHashMap<>();
     }
 
     public Extension getBy(String name) {
