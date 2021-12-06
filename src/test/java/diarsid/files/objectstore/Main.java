@@ -34,7 +34,9 @@ public class Main {
 
 //        models.clear();
 
-        Model model = new Model(randomUUID(), "some string data", 0.1);
+        UUID uuid = UUID.fromString("9b49c9aa-85cf-456b-8cc3-77b947014bdc");
+
+        Model model = new Model(uuid, "some string data 4", 0.1);
         model.list.add(new Nested("aaaa", true));
         model.map.put(3, new Nested("bbb", true));
 

@@ -29,7 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static java.lang.String.format;
-import static java.nio.file.StandardOpenOption.CREATE_NEW;
+import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
@@ -215,7 +215,7 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
     public synchronized void save(T t) {
         try (var storeFileChannel = FileChannel.open(this.storeLock, READ, WRITE);
              var storeLock = storeFileChannel.lock();
-             var fileChannel = FileChannel.open(this.filePathOf(t), READ, WRITE, CREATE_NEW);
+             var fileChannel = FileChannel.open(this.filePathOf(t), READ, WRITE, CREATE);
              var os = Channels.newOutputStream(fileChannel)) {
             var lock = fileChannel.lock();
             var objectOutputStream = new ObjectOutputStream(os);
@@ -234,7 +234,7 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
              var storeLock = storeFileChannel.lock()) {
 
             for ( T t : list ) {
-                try (var fileChannel = FileChannel.open(this.filePathOf(t), READ, WRITE, CREATE_NEW);
+                try (var fileChannel = FileChannel.open(this.filePathOf(t), READ, WRITE, CREATE);
                      var os = Channels.newOutputStream(fileChannel);
                      var objectOutputStream = new ObjectOutputStream(os);
                      var lock = fileChannel.lock()) {
