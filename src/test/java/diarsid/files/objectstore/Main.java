@@ -3,6 +3,8 @@ package diarsid.files.objectstore;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,8 +18,19 @@ public class Main {
     public static void main(String[] args) throws Exception {
         ObjectStore<UUID, Model> models = new FileObjectStore<>(Paths.get("D:/DEV/test/store"), Model.class);
 
+        ReadWriteLock locks = new ReentrantReadWriteLock(true);
+        var readLock = locks.readLock();
+        var writeLock = locks.writeLock();
+
         ObjectStore.CreatedListener<UUID, Model> createdListener = model -> {
-            log.info("created: " + model.uuid);
+            log.info("before created: " + model.uuid);
+            writeLock.lock();
+            try {
+                log.info("created: " + model.uuid);
+            }
+            finally {
+                writeLock.unlock();
+            }
         };
 
         ObjectStore.RemovedListener removedListener = serializedKey -> {
@@ -40,7 +53,29 @@ public class Main {
         model.list.add(new Nested("aaaa", true));
         model.map.put(3, new Nested("bbb", true));
 
-        models.save(model);
+        writeLock.lock();
+        try {
+            models.save(model);
+            models.save(model);
+            models.save(model);
+        }
+        finally {
+            writeLock.unlock();
+        }
+
+        Model model2 = new Model(randomUUID(), "xxxxx", 0.1);
+        model2.list.add(new Nested("aaaa", true));
+        model2.map.put(3, new Nested("bbb", true));
+
+        writeLock.lock();
+        try {
+            models.save(model2);
+        }
+        finally {
+            writeLock.unlock();
+        }
+
+        System.out.println("finished");
 //        Model model1 = models.getBy(model.uuid);
 
 //        models.remove(model);
@@ -55,6 +90,6 @@ public class Main {
 
         Thread.sleep(500);
         models.close();
-
+        System.out.println("closed");
     }
 }

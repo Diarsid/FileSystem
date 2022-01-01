@@ -6,7 +6,7 @@
 
     <groupId>diarsid</groupId>
     <artifactId>filesystem</artifactId>
-    <version>1.0.6</version>
+    <version>1.1.2</version>
 
     <name>FileSystem</name>
 

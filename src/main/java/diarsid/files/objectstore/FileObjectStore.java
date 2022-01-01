@@ -1,6 +1,7 @@
 package diarsid.files.objectstore;
 
 import java.io.IOException;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
@@ -17,13 +18,19 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import diarsid.files.LocalDirectoryWatcher;
 import diarsid.files.objectstore.exceptions.NoStoreDirectoryException;
 import diarsid.files.objectstore.exceptions.NoSuchObjectException;
+import diarsid.files.objectstore.exceptions.ObjectClassNotMatchesException;
 import diarsid.files.objectstore.exceptions.ObjectFileNotReadableException;
 import diarsid.files.objectstore.exceptions.ObjectStoreException;
+import diarsid.support.concurrency.threads.IncrementNamedThreadFactory;
 import diarsid.support.model.Identity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +45,8 @@ import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
 import static java.util.UUID.randomUUID;
 import static java.util.stream.Collectors.toUnmodifiableList;
 
+import static diarsid.support.concurrency.threads.ThreadsUtil.shutdownAndWait;
+
 public class FileObjectStore<K extends Serializable, T extends Identity<K>> implements ObjectStore<K, T> {
 
     private static final int MAX_PARALLELISM = 1; // see the ConcurrentHashMap doc for explanation
@@ -47,6 +56,7 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
     private final Class<T> tClass;
     private final String tClassSignature;
     private final LocalDirectoryWatcher watcher;
+    private final ExecutorService async;
     private final ConcurrentHashMap<UUID, Listener> allListeners;
     private final ConcurrentHashMap<UUID, CreatedListener<K, T>> createdListeners;
     private final ConcurrentHashMap<UUID, RemovedListener> removedListeners;
@@ -89,6 +99,10 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         this.createdListeners = new ConcurrentHashMap<>();
         this.removedListeners = new ConcurrentHashMap<>();
         this.changedListeners = new ConcurrentHashMap<>();
+
+        ThreadFactory threadFactory = new IncrementNamedThreadFactory(
+                FileObjectStore.class.getSimpleName() + "<" + this.tClass.getSimpleName() + ">[" + this.directory.toString() + "].%s");
+        this.async = Executors.newFixedThreadPool(1, threadFactory);
     }
 
     @Override
@@ -119,7 +133,6 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public synchronized T getBy(K key) {
         Path path = this.filePathOf(key);
         try (var storeFileChannel = FileChannel.open(this.storeLock, READ, WRITE);
@@ -129,9 +142,12 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         catch (IOException e) {
             throw new ObjectStoreException(e);
         }
-
     }
 
+    // Дима хуй
+    // (c) Юра 01.01.2022
+
+    @SuppressWarnings("unchecked")
     private T read(Path path) {
         try (var fileChannel = FileChannel.open(path, READ, WRITE);
              var is = Channels.newInputStream(fileChannel);
@@ -145,7 +161,10 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
             throw new NoSuchObjectException(e);
         }
         catch (StreamCorruptedException e) {
-            throw new ObjectFileNotReadableException(this.tClass, path);
+            throw new ObjectFileNotReadableException(this.tClass, path, e);
+        }
+        catch (InvalidClassException e) {
+            throw new ObjectClassNotMatchesException(this.tClass, path, e);
         }
         catch (IOException | ClassNotFoundException e) {
             throw new ObjectStoreException(e);
@@ -158,11 +177,22 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
              var storeLock = storeFileChannel.lock()) {
             return keys
                     .stream()
-                    .map(this::getBy)
+                    .map(this::filePathOf)
+                    .map(this::readOrNull)
+                    .filter(Objects::nonNull)
                     .collect(toUnmodifiableList());
         }
         catch (IOException e) {
             throw new ObjectStoreException(e);
+        }
+    }
+
+    private T readOrNull(Path path) {
+        try {
+            return this.read(path);
+        } catch (ObjectFileNotReadableException | ObjectClassNotMatchesException e) {
+            log.error(e.getMessage());
+            return null;
         }
     }
 
@@ -173,15 +203,7 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
              var files = Files.list(directory)) {
             return files
                     .filter(path -> path.getFileName().toString().startsWith(this.tClassSignature))
-                    .map(path -> {
-                        try {
-                            return this.read(path);
-                        }
-                        catch (ObjectFileNotReadableException e) {
-                            log.error(e.getMessage());
-                            return null;
-                        }
-                    })
+                    .map(this::readOrNull)
                     .filter(Objects::nonNull)
                     .collect(toUnmodifiableList());
         }
@@ -385,6 +407,7 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
     @Override
     public void close() throws Exception {
         this.watcher.destroy();
+        shutdownAndWait(this.async);
     }
 
     private void transmitChangeToListenersOrSkip(WatchEvent.Kind changeKind, Path changedPath) {
@@ -393,7 +416,7 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
                 this.notBelongToStore(changedPath);
 
         if ( skip ) {
-            System.out.println("skip " + changedPath);
+            log.info("skip " + changedPath);
             return;
         }
 
@@ -402,21 +425,33 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
 
     private synchronized void transmitChangeToListenersSynced(WatchEvent.Kind changeKind, Path changedPath) {
         if ( changeKind.equals(ENTRY_MODIFY) ) {
-            if ( ! changedListeners.isEmpty() ) {
-                T t = this.read(changedPath);
-                this.changedListeners.forEachValue(MAX_PARALLELISM, listener -> listener.onChanged(t));
+            if ( ! this.changedListeners.isEmpty() ) {
+                this.async.submit(() -> {
+                    T t;
+                    synchronized ( this ) {
+                        t = this.read(changedPath);
+                    }
+                    this.changedListeners.forEachValue(MAX_PARALLELISM, listener -> listener.onChanged(t));
+                });
             }
         }
         else if ( changeKind.equals(ENTRY_CREATE) ) {
             if ( ! this.createdListeners.isEmpty() ) {
-                T t = this.read(changedPath);
-                this.createdListeners.forEachValue(MAX_PARALLELISM, lisener -> lisener.onCreated(t));
+                this.async.submit(() -> {
+                    T t;
+                    synchronized ( this ) {
+                        t = this.read(changedPath);
+                    }
+                    this.createdListeners.forEachValue(MAX_PARALLELISM, listener -> listener.onCreated(t));
+                });
             }
         }
         else if ( changeKind.equals(ENTRY_DELETE) ) {
             if ( ! this.removedListeners.isEmpty() ) {
                 String keyString = this.keyPartOf(changedPath);
-                this.removedListeners.forEachValue(MAX_PARALLELISM, listener -> listener.onRemoved(keyString));
+                this.async.submit(() -> {
+                    this.removedListeners.forEachValue(MAX_PARALLELISM, listener -> listener.onRemoved(keyString));
+                });
             }
         }
     }

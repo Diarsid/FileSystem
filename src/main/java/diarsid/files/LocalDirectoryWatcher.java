@@ -36,7 +36,7 @@ public class LocalDirectoryWatcher extends AbstractStatefulDestroyableWorker {
         NONE
     }
 
-    private static final Object CALLBACK_MONITOR = new Object();
+    private static final Object STATIC_CALLBACK_MONITOR = new Object();
 
     private final Path path;
     private final BiConsumer<WatchEvent.Kind<?>, Path> callback;
@@ -102,7 +102,7 @@ public class LocalDirectoryWatcher extends AbstractStatefulDestroyableWorker {
 
                     switch ( this.sync ) {
                         case PER_JVM:
-                            synchronized ( CALLBACK_MONITOR ) {
+                            synchronized (STATIC_CALLBACK_MONITOR) {
                                 this.callback.accept(watchEvent.kind(), path);
                             }
                             break;
@@ -136,11 +136,11 @@ public class LocalDirectoryWatcher extends AbstractStatefulDestroyableWorker {
         try {
             this.watchService.close();
             shutdownAndWait(this.async);
+            return true;
         }
         catch (IOException e) {
-
+            log.error("Cannot close OS file watcher", e);
+            return false;
         }
-
-        return true;
     }
 }

@@ -13,4 +13,8 @@ public class ObjectStoreException extends RuntimeException {
     public ObjectStoreException(String message) {
         super(message);
     }
+
+    public ObjectStoreException(String message, Exception e) {
+        super(message, e);
+    }
 }

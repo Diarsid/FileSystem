@@ -46,4 +46,9 @@ public class Model implements Unique {
     public int hashCode() {
         return Objects.hash(uuid, string, x, list, map);
     }
+
+    @Override
+    public String toString() {
+        return uuid.toString();
+    }
 }
