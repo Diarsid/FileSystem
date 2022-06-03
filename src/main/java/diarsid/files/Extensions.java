@@ -49,7 +49,7 @@ public class Extensions {
     }
 
     public Optional<Extension> getFor(File file) {
-        String extensionString = this.extensionStringOrNullFrom(file);
+        String extensionString = extensionStringOrNullFrom(file);
         if ( isNull(extensionString) || extensionString.isBlank() ) {
             return Optional.empty();
         }

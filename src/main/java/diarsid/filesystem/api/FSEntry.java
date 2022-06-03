@@ -41,7 +41,7 @@ public interface FSEntry extends Comparable<FSEntry> {
 
     Optional<Directory> parent();
 
-    Optional<Directory> existedParent();
+    Optional<Directory> firstExistingParent();
 
     List<Directory> parents();
 

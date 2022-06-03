@@ -4,31 +4,47 @@ import java.io.Serializable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import diarsid.support.model.Identity;
 
+import static java.util.Arrays.asList;
 import static java.util.stream.Collectors.toList;
 
 public interface ObjectStore<K extends Serializable, T extends Identity<K>> extends AutoCloseable {
 
     interface Listener {
 
+        UUID uuid();
+
         default void onUnsubscribed() {}
-    }
 
-    interface CreatedListener<K extends Serializable, T extends Identity<K>> extends Listener {
+        interface OnCreated<K extends Serializable, T extends Identity<K>> extends Listener {
 
-        void onCreated(T t);
-    }
+            static <K extends Serializable, T extends Identity<K>> OnCreated<K, T> getDefault(Consumer<T> listener) {
+                return new DefaultObjectStoreListenerOnCreated<>(listener);
+            }
 
-    interface RemovedListener extends Listener {
+            void onCreated(T t);
+        }
 
-        void onRemoved(String serializedKey);
-    }
+        interface OnRemoved extends Listener {
 
-    interface ChangedListener<K extends Serializable, T extends Identity<K>> extends Listener {
+            static OnRemoved getDefault(Consumer<String> listener) {
+                return new DefaultObjectStoreListenerOnRemoved(listener);
+            }
 
-        void onChanged(T t);
+            void onRemoved(String serializedKey);
+        }
+
+        interface OnChanged<K extends Serializable, T extends Identity<K>> extends Listener {
+
+            static <K extends Serializable, T extends Identity<K>> OnChanged<K, T> getDefault(Consumer<T> listener) {
+                return new DefaultObjectStoreListenerOnChanged<>(listener);
+            }
+
+            void onChanged(T t);
+        }
     }
 
     enum Instruction {
@@ -47,6 +63,10 @@ public interface ObjectStore<K extends Serializable, T extends Identity<K>> exte
     Optional<T> findBy(K key);
 
     void save(T t);
+
+    default void saveAll(T... ts) {
+        this.saveAll(asList(ts));
+    }
 
     void saveAll(List<T> list);
 
@@ -69,11 +89,11 @@ public interface ObjectStore<K extends Serializable, T extends Identity<K>> exte
 
     void clear();
 
-    UUID subscribe(CreatedListener<K, T> listener);
+    void subscribe(Listener.OnCreated<K, T> listener);
 
-    UUID subscribe(RemovedListener listener);
+    void subscribe(Listener.OnRemoved listener);
 
-    UUID subscribe(ChangedListener<K, T> listener);
+    void subscribe(Listener.OnChanged<K, T> listener);
 
     boolean unsubscribe(UUID listenerUuid);
 

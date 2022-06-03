@@ -68,7 +68,7 @@ public class LocalMachineDirectory implements Directory {
     }
 
     @Override
-    public Optional<Directory> existedParent() {
+    public Optional<Directory> firstExistingParent() {
         return Optional.empty();
     }
 

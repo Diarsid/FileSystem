@@ -127,7 +127,6 @@ public class LocalFileSystem implements FileSystem {
     private final Extensions extensions;
     private final Desktop desktop;
     private final Predicate<FSEntry> notIgnored;
-    private final PathMove pathMove;
     private final ChangesImpl changes;
 
     public LocalFileSystem(
@@ -140,7 +139,6 @@ public class LocalFileSystem implements FileSystem {
         this.extensions = new Extensions();
         this.desktop = getDesktop();
         this.notIgnored = this.ignores::isNotIgnored;
-        this.pathMove = new PathMove();
         this.changes = new ChangesImpl(namedThreadSource);
 
         this.changes.listenForEntriesRemoved(this::removeWatchers);
@@ -341,6 +339,7 @@ public class LocalFileSystem implements FileSystem {
         }
         else {
             LocalDirectory directoryToMove = (LocalDirectory) whatToMove;
+
             if ( directoryToMove.equals(directoryHost) ) {
                 return false;
             }
@@ -773,7 +772,7 @@ public class LocalFileSystem implements FileSystem {
     }
 
     @Override
-    public Optional<Directory> existedParentOf(Path path) {
+    public Optional<Directory> firstExistingParentOf(Path path) {
         Path parent = path.getParent();
 
         while ( nonNull(parent) ) {

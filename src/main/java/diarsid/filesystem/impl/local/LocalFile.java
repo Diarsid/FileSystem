@@ -58,8 +58,8 @@ class LocalFile implements File, ChangeableFSEntry {
     }
 
     @Override
-    public Optional<Directory> existedParent() {
-        return this.fileSystem.existedParentOf(this.path);
+    public Optional<Directory> firstExistingParent() {
+        return this.fileSystem.firstExistingParentOf(this.path);
     }
 
     @Override

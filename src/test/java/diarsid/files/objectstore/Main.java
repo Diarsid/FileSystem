@@ -22,7 +22,7 @@ public class Main {
         var readLock = locks.readLock();
         var writeLock = locks.writeLock();
 
-        ObjectStore.CreatedListener<UUID, Model> createdListener = model -> {
+        ObjectStore.Listener.OnCreated<UUID, Model> onCreated = ObjectStore.Listener.OnCreated.getDefault(model -> {
             log.info("before created: " + model.uuid);
             writeLock.lock();
             try {
@@ -31,19 +31,19 @@ public class Main {
             finally {
                 writeLock.unlock();
             }
-        };
+        });
 
-        ObjectStore.RemovedListener removedListener = serializedKey -> {
+        ObjectStore.Listener.OnRemoved onRemoved = ObjectStore.Listener.OnRemoved.getDefault(serializedKey -> {
             log.info("removed: " + serializedKey);
-        };
+        });
 
-        ObjectStore.ChangedListener<UUID, Model> changedListener = model -> {
+        ObjectStore.Listener.OnChanged<UUID, Model> onChanged = ObjectStore.Listener.OnChanged.getDefault(model -> {
             log.info("changed: " + model.uuid);
-        };
+        });
 
-        models.subscribe(createdListener);
-        models.subscribe(removedListener);
-        models.subscribe(changedListener);
+        models.subscribe(onCreated);
+        models.subscribe(onRemoved);
+        models.subscribe(onChanged);
 
 //        models.clear();
 

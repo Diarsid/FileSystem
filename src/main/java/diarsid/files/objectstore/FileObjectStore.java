@@ -21,7 +21,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import diarsid.files.LocalDirectoryWatcher;
@@ -42,7 +41,6 @@ import static java.nio.file.StandardOpenOption.WRITE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
-import static java.util.UUID.randomUUID;
 import static java.util.stream.Collectors.toUnmodifiableList;
 
 import static diarsid.support.concurrency.threads.ThreadsUtil.shutdownAndWait;
@@ -58,9 +56,9 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
     private final LocalDirectoryWatcher watcher;
     private final ExecutorService async;
     private final ConcurrentHashMap<UUID, Listener> allListeners;
-    private final ConcurrentHashMap<UUID, CreatedListener<K, T>> createdListeners;
-    private final ConcurrentHashMap<UUID, RemovedListener> removedListeners;
-    private final ConcurrentHashMap<UUID, ChangedListener<K, T>> changedListeners;
+    private final ConcurrentHashMap<UUID, Listener.OnCreated<K, T>> createdListeners;
+    private final ConcurrentHashMap<UUID, Listener.OnRemoved> removedListeners;
+    private final ConcurrentHashMap<UUID, Listener.OnChanged<K, T>> changedListeners;
     private final Logger log;
 
     public FileObjectStore(Path directory, Class<T> tClass) {
@@ -341,41 +339,35 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
     }
 
     @Override
-    public UUID subscribe(CreatedListener<K, T> listener) {
-        UUID key = randomUUID();
-        this.createdListeners.put(key, listener);
-        return key;
+    public void subscribe(Listener.OnCreated<K, T> listener) {
+        this.createdListeners.put(listener.uuid(), listener);
     }
 
     @Override
-    public UUID subscribe(RemovedListener listener) {
-        UUID key = randomUUID();
-        this.removedListeners.put(key, listener);
-        return key;
+    public void subscribe(Listener.OnRemoved listener) {
+        this.removedListeners.put(listener.uuid(), listener);
     }
 
     @Override
-    public UUID subscribe(ChangedListener<K, T> listener) {
-        UUID key = randomUUID();
-        this.changedListeners.put(key, listener);
-        return key;
+    public void subscribe(Listener.OnChanged<K, T> listener) {
+        this.changedListeners.put(listener.uuid(), listener);
     }
 
     @Override
     public boolean unsubscribe(UUID uuid) {
-        var listener = this.allListeners.remove(uuid);
+        var abstractListener = this.allListeners.remove(uuid);
 
-        boolean removed = listener != null;
+        boolean removed = abstractListener != null;
 
         if ( removed ) {
-            boolean removed2 = this.getListenersOf(listener).remove(uuid) != null;
+            boolean listener = this.getListenersOf(abstractListener).remove(uuid) != null;
 
-            if ( ! removed2 ) {
+            if ( ! listener ) {
                 throw new ObjectStoreException();
             }
 
             try {
-                listener.onUnsubscribed();
+                abstractListener.onUnsubscribed();
             }
             catch (Exception e) {
                 throw new ObjectStoreException(e);
@@ -387,13 +379,13 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
 
     private ConcurrentHashMap<UUID, ? extends Listener> getListenersOf(Listener listener) {
         ConcurrentHashMap<UUID, ? extends Listener> listeners = null;
-        if ( listener instanceof ChangedListener ) {
+        if ( listener instanceof ObjectStore.Listener.OnChanged) {
             listeners =  this.changedListeners;
         }
-        else if ( listener instanceof CreatedListener ) {
+        else if ( listener instanceof ObjectStore.Listener.OnCreated) {
             listeners =  this.createdListeners;
         }
-        else if ( listener instanceof RemovedListener ) {
+        else if ( listener instanceof ObjectStore.Listener.OnRemoved) {
             listeners =  this.removedListeners;
         }
 
@@ -449,9 +441,11 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         else if ( changeKind.equals(ENTRY_DELETE) ) {
             if ( ! this.removedListeners.isEmpty() ) {
                 String keyString = this.keyPartOf(changedPath);
-                this.async.submit(() -> {
-                    this.removedListeners.forEachValue(MAX_PARALLELISM, listener -> listener.onRemoved(keyString));
-                });
+                if (keyString != null) {
+                    this.async.submit(() -> {
+                        this.removedListeners.forEachValue(MAX_PARALLELISM, listener -> listener.onRemoved(keyString));
+                    });
+                }
             }
         }
     }

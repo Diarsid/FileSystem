@@ -102,7 +102,7 @@ public interface FileSystem {
 
     Optional<Directory> parentOf(FSEntry fsEntry);
 
-    Optional<Directory> existedParentOf(Path path);
+    Optional<Directory> firstExistingParentOf(Path path);
 
     List<Directory> parentsOf(FSEntry fsEntry);
 
