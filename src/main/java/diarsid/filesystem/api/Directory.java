@@ -1,12 +1,15 @@
 package diarsid.filesystem.api;
 
+import java.io.Serializable;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.function.Consumer;
 
 import diarsid.filesystem.impl.local.LocalMachineDirectory;
 import diarsid.filesystem.impl.local.ProgressTrackerBack;
+import diarsid.support.objects.references.Result;
 
 public interface Directory extends FSEntry {
 
@@ -17,7 +20,27 @@ public interface Directory extends FSEntry {
         FILLED
     }
 
-    Optional<Directory> parent();
+    Result<Directory> parent();
+
+    Result<FSEntry> toFSEntry(Path path);
+
+    default Result<FSEntry> toFSEntry(String path) {
+        return this.toFSEntry(Paths.get(path));
+    }
+
+    Result<File> file(String name);
+
+    Result<File> fileCreateIfNotExists(String name);
+
+    Result<Directory> directory(String name);
+
+    Result<Directory> directoryCreateIfNotExists(String name);
+
+    boolean hasFile(String name);
+
+    boolean hasDirectory(String name);
+
+    long countChildren();
 
     default boolean isParentOf(FSEntry fsEntry) {
         return this.isIndirectParentOf(fsEntry) || this.isDirectParentOf(fsEntry);
@@ -45,9 +68,15 @@ public interface Directory extends FSEntry {
 
     void feedChildren(Consumer<List<FSEntry>> itemsConsumer);
 
+    void feedChildren(Consumer<List<FSEntry>> itemsConsumer, Comparator<FSEntry> comparator);
+
     void feedDirectories(Consumer<List<Directory>> directoriesConsumer);
 
+    void feedDirectories(Consumer<List<Directory>> directoriesConsumer, Comparator<Directory> comparator);
+
     void feedFiles(Consumer<List<File>> filesConsumer);
+
+    void feedFiles(Consumer<List<File>> filesConsumer, Comparator<File> comparator);
 
     void host(FSEntry newEntry, Consumer<Boolean> callback);
 
@@ -56,6 +85,8 @@ public interface Directory extends FSEntry {
     boolean host(FSEntry newEntry);
 
     boolean hostAll(List<FSEntry> newEntries, ProgressTrackerBack<FSEntry> progressTracker);
+
+    Result.Void remove(String name);
 
     default boolean canHost(FSEntry newEntry) {
         if ( this instanceof LocalMachineDirectory) {
@@ -89,6 +120,12 @@ public interface Directory extends FSEntry {
     default boolean canNotBe(Edit edit) {
         return ! this.canBe(edit);
     }
+
+    Result<File> writeAsFile(String fileName, Serializable object);
+
+    <T> Result<T> readFromFile(String fileName, Class<T> type);
+
+    Result<Object> readFromFile(String fileName);
 
     void watch();
 

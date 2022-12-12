@@ -3,11 +3,13 @@ package diarsid.filesystem.api;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
+
+import diarsid.files.PathBearer;
+import diarsid.support.objects.references.Result;
 
 import static java.lang.String.format;
 
-public interface FSEntry extends Comparable<FSEntry> {
+public interface FSEntry extends Comparable<FSEntry>, PathBearer {
 
     Comparator<FSEntry> compareByDepth = (fsEntry1, fsEntry2) -> {
         if ( fsEntry1.depth() > fsEntry2.depth() ) {
@@ -27,7 +29,7 @@ public interface FSEntry extends Comparable<FSEntry> {
 
     boolean isFile();
 
-    Path path();
+    void lockAndDo(Runnable toDoInLock);
 
     void showInDefaultFileManager();
 
@@ -39,9 +41,9 @@ public interface FSEntry extends Comparable<FSEntry> {
         return ! this.path().equals(path);
     }
 
-    Optional<Directory> parent();
+    Result<Directory> parent();
 
-    Optional<Directory> firstExistingParent();
+    Result<Directory> firstExistingParent();
 
     List<Directory> parents();
 

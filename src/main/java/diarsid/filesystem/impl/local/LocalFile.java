@@ -1,19 +1,32 @@
 package diarsid.filesystem.impl.local;
 
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.Serializable;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.locks.Lock;
 
-import diarsid.filesystem.api.Directory;
+import org.slf4j.LoggerFactory;
+
 import diarsid.files.Extension;
+import diarsid.files.PathReentrantLock;
+import diarsid.filesystem.api.Directory;
 import diarsid.filesystem.api.FSEntry;
 import diarsid.filesystem.api.File;
 import diarsid.filesystem.api.FileSystem;
+import diarsid.support.objects.references.Result;
 
+import static java.nio.file.StandardOpenOption.READ;
 import static java.util.Objects.nonNull;
+
+import static diarsid.filesystem.api.NoResultReason.PATH_NOT_EXISTS;
 
 class LocalFile implements File, ChangeableFSEntry {
 
@@ -47,18 +60,18 @@ class LocalFile implements File, ChangeableFSEntry {
     }
 
     @Override
-    public Optional<Directory> parent() {
+    public Result<Directory> parent() {
         Path parent = this.path.getParent();
         if ( nonNull(parent) ) {
             return this.fileSystem.toDirectory(parent);
         }
         else {
-            return Optional.empty();
+            return Result.empty(PATH_NOT_EXISTS);
         }
     }
 
     @Override
-    public Optional<Directory> firstExistingParent() {
+    public Result<Directory> firstExistingParent() {
         return this.fileSystem.firstExistingParentOf(this.path);
     }
 
@@ -144,8 +157,50 @@ class LocalFile implements File, ChangeableFSEntry {
     }
 
     @Override
+    public Directory directory() {
+        return this.parent().orThrow();
+    }
+
+    @Override
     public void open() {
         this.fileSystem.open(this);
+    }
+
+    @Override
+    public <T> Result<T> readAs(Class<T> type) {
+        return this.directory().readFromFile(this.name, type);
+    }
+
+    @Override
+    public Result<Object> read() {
+        return this.directory().readFromFile(this.name);
+    }
+
+    @Override
+    public void write(Serializable object) {
+        this.directory().writeAsFile(this.name, object);
+    }
+
+    @Override
+    public void lockAndDo(Runnable toDoInLock) {
+        Lock access = PathReentrantLock.of(path, true);
+        access.lock();
+        try (var fileChannel = FileChannel.open(path, READ);
+             var lock = fileChannel.lock()) {
+
+            try {
+                toDoInLock.run();
+            }
+            catch (Exception e) {
+                LoggerFactory.getLogger(LocalFile.class).error("Exception during toDoInLock while holding lock of file: " + this.path, e);
+            }
+        }
+        catch (Exception e) {
+            LoggerFactory.getLogger(LocalFile.class).error("Cannot lock or read file: " + this.path, e);
+        }
+        finally {
+            access.unlock();
+        }
     }
 
     @Override
@@ -159,5 +214,25 @@ class LocalFile implements File, ChangeableFSEntry {
     @Override
     public int hashCode() {
         return Objects.hash(path);
+    }
+
+    @Override
+    public LocalDateTime createdAt() {
+        return this.fileSystem.creationTimeOf(this).orThrow();
+    }
+
+    @Override
+    public LocalDateTime actualAt() {
+        return this.fileSystem.modificationTimeOf(this).orThrow();
+    }
+
+    @Override
+    public Result<LocalDateTime> creationTime() {
+        return this.fileSystem.creationTimeOf(this);
+    }
+
+    @Override
+    public Result<LocalDateTime> modificationTime() {
+        return this.fileSystem.modificationTimeOf(this);
     }
 }

@@ -1,4 +1,4 @@
-package diarsid.files.objectstore;
+package diarsid.files.objects.store;
 
 import java.util.UUID;
 import java.util.function.Consumer;

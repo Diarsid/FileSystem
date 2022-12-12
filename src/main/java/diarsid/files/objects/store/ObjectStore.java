@@ -1,4 +1,4 @@
-package diarsid.files.objectstore;
+package diarsid.files.objects.store;
 
 import java.io.Serializable;
 import java.util.List;

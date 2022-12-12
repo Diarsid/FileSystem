@@ -1,4 +1,4 @@
-package diarsid.files.objectstore.exceptions;
+package diarsid.files.objects.store.exceptions;
 
 public class ObjectStoreException extends RuntimeException {
 

@@ -1,4 +1,4 @@
-package diarsid.files.objectstore;
+package diarsid.files.objects.store;
 
 import java.io.IOException;
 import java.io.InvalidClassException;
@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.WatchEvent;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,18 +22,21 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.locks.Lock;
 import java.util.stream.Collectors;
 
-import diarsid.files.LocalDirectoryWatcher;
-import diarsid.files.objectstore.exceptions.NoStoreDirectoryException;
-import diarsid.files.objectstore.exceptions.NoSuchObjectException;
-import diarsid.files.objectstore.exceptions.ObjectClassNotMatchesException;
-import diarsid.files.objectstore.exceptions.ObjectFileNotReadableException;
-import diarsid.files.objectstore.exceptions.ObjectStoreException;
-import diarsid.support.concurrency.threads.IncrementNamedThreadFactory;
-import diarsid.support.model.Identity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import diarsid.files.LocalDirectoryWatcher;
+import diarsid.files.PathReentrantLock;
+import diarsid.files.objects.exceptions.ObjectInFileClassException;
+import diarsid.files.objects.exceptions.ObjectInFileNotFoundException;
+import diarsid.files.objects.exceptions.ObjectInFileNotReadableException;
+import diarsid.files.objects.store.exceptions.NoStoreDirectoryException;
+import diarsid.files.objects.store.exceptions.ObjectStoreException;
+import diarsid.support.concurrency.threads.IncrementNamedThreadFactory;
+import diarsid.support.model.Identity;
 
 import static java.lang.String.format;
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -50,7 +54,8 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
     private static final int MAX_PARALLELISM = 1; // see the ConcurrentHashMap doc for explanation
 
     private final Path directory;
-    private final Path storeLock;
+    private final Path storeFileLock;
+    private final Map<Path, Lock> access;
     private final Class<T> tClass;
     private final String tClassSignature;
     private final LocalDirectoryWatcher watcher;
@@ -70,14 +75,16 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
             throw new NoStoreDirectoryException();
         }
 
+        this.access = new ConcurrentHashMap<>();
+
         this.directory = directory;
         this.tClass = tClass;
         this.tClassSignature = tClass.getCanonicalName();
-        this.storeLock = this.directory.resolve(".store." + this.tClassSignature);
+        this.storeFileLock = this.directory.resolve(".store." + this.tClassSignature);
 
-        if ( ! Files.exists(this.storeLock) ) {
+        if ( ! Files.exists(this.storeFileLock) ) {
             try {
-                Files.createFile(directory.resolve(this.storeLock));
+                Files.createFile(directory.resolve(this.storeFileLock));
             }
             catch (IOException e) {
                 throw new ObjectStoreException(e);
@@ -101,6 +108,10 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         ThreadFactory threadFactory = new IncrementNamedThreadFactory(
                 FileObjectStore.class.getSimpleName() + "<" + this.tClass.getSimpleName() + ">[" + this.directory.toString() + "].%s");
         this.async = Executors.newFixedThreadPool(1, threadFactory);
+    }
+
+    private Lock lockOf(Path path) {
+        return this.access.computeIfAbsent(path, (newPath) -> new PathReentrantLock(newPath, true));
     }
 
     @Override
@@ -133,12 +144,17 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
     @Override
     public synchronized T getBy(K key) {
         Path path = this.filePathOf(key);
-        try (var storeFileChannel = FileChannel.open(this.storeLock, READ, WRITE);
+        Lock pathAccess = this.lockOf(this.storeFileLock);
+        pathAccess.lock();
+        try (var storeFileChannel = FileChannel.open(this.storeFileLock, READ, WRITE);
              var storeLock = storeFileChannel.lock()) {
             return this.read(path);
         }
         catch (IOException e) {
             throw new ObjectStoreException(e);
+        }
+        finally {
+            pathAccess.unlock();
         }
     }
 
@@ -147,6 +163,8 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
 
     @SuppressWarnings("unchecked")
     private T read(Path path) {
+        Lock pathAccess = this.lockOf(path);
+        pathAccess.lock();
         try (var fileChannel = FileChannel.open(path, READ, WRITE);
              var is = Channels.newInputStream(fileChannel);
              var objectInputStream = new ObjectInputStream(is);
@@ -156,22 +174,27 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
             return t;
         }
         catch (NoSuchFileException e) {
-            throw new NoSuchObjectException(e);
+            throw new ObjectInFileNotFoundException(path);
         }
         catch (StreamCorruptedException e) {
-            throw new ObjectFileNotReadableException(this.tClass, path, e);
+            throw new ObjectInFileNotReadableException(this.tClass, path, e);
         }
         catch (InvalidClassException e) {
-            throw new ObjectClassNotMatchesException(this.tClass, path, e);
+            throw new ObjectInFileClassException(this.tClass, path, e);
         }
         catch (IOException | ClassNotFoundException e) {
             throw new ObjectStoreException(e);
+        }
+        finally {
+            pathAccess.unlock();
         }
     }
 
     @Override
     public synchronized List<T> getAllBy(List<K> keys) {
-        try (var storeFileChannel = FileChannel.open(this.storeLock, READ, WRITE);
+        Lock pathAccess = this.lockOf(this.storeFileLock);
+        pathAccess.lock();
+        try (var storeFileChannel = FileChannel.open(this.storeFileLock, READ, WRITE);
              var storeLock = storeFileChannel.lock()) {
             return keys
                     .stream()
@@ -183,12 +206,15 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         catch (IOException e) {
             throw new ObjectStoreException(e);
         }
+        finally {
+            pathAccess.unlock();
+        }
     }
 
     private T readOrNull(Path path) {
         try {
             return this.read(path);
-        } catch (ObjectFileNotReadableException | ObjectClassNotMatchesException e) {
+        } catch (ObjectInFileNotReadableException | ObjectInFileClassException e) {
             log.error(e.getMessage());
             return null;
         }
@@ -196,7 +222,9 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
 
     @Override
     public synchronized List<T> getAll() {
-        try (var fileChannel = FileChannel.open(this.storeLock, READ, WRITE);
+        Lock pathAccess = this.lockOf(this.storeFileLock);
+        pathAccess.lock();
+        try (var fileChannel = FileChannel.open(this.storeFileLock, READ, WRITE);
              var storeLock = fileChannel.lock();
              var files = Files.list(directory)) {
             return files
@@ -208,14 +236,24 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         catch (IOException e) {
             throw new ObjectStoreException(e);
         }
+        finally {
+            pathAccess.unlock();
+        }
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public synchronized Optional<T> findBy(K key) {
-        try (var storeFileChannel = FileChannel.open(this.storeLock, READ, WRITE);
+        Path filePath = this.filePathOf(key);
+
+        Lock pathStoreAccess = this.lockOf(this.storeFileLock);
+        Lock pathAccess = this.lockOf(filePath);
+
+        pathStoreAccess.lock();
+        pathAccess.lock();
+        try (var storeFileChannel = FileChannel.open(this.storeFileLock, READ, WRITE);
              var storeLock = storeFileChannel.lock();
-             var fileChannel = FileChannel.open(this.filePathOf(key), READ, WRITE);
+             var fileChannel = FileChannel.open(filePath, READ, WRITE);
              var is = Channels.newInputStream(fileChannel);
              var objectInputStream = new ObjectInputStream(is);
              var lock = fileChannel.lock()) {
@@ -229,13 +267,24 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         catch (IOException | ClassNotFoundException e) {
             throw new ObjectStoreException(e);
         }
+        finally {
+            pathAccess.unlock();
+            pathStoreAccess.unlock();
+        }
     }
 
     @Override
     public synchronized void save(T t) {
-        try (var storeFileChannel = FileChannel.open(this.storeLock, READ, WRITE);
+        Path filePath = this.filePathOf(t);
+
+        Lock pathStoreAccess = this.lockOf(this.storeFileLock);
+        Lock pathAccess = this.lockOf(filePath);
+
+        pathStoreAccess.lock();
+        pathAccess.lock();
+        try (var storeFileChannel = FileChannel.open(this.storeFileLock, READ, WRITE);
              var storeLock = storeFileChannel.lock();
-             var fileChannel = FileChannel.open(this.filePathOf(t), READ, WRITE, CREATE);
+             var fileChannel = FileChannel.open(filePath, READ, WRITE, CREATE);
              var os = Channels.newOutputStream(fileChannel)) {
             var lock = fileChannel.lock();
             var objectOutputStream = new ObjectOutputStream(os);
@@ -246,38 +295,61 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         catch (IOException e) {
             throw new ObjectStoreException(e);
         }
+        finally {
+            pathAccess.unlock();
+            pathStoreAccess.unlock();
+        }
     }
 
     @Override
     public synchronized void saveAll(List<T> list) {
-        try (var storeFileChannel = FileChannel.open(this.storeLock, READ, WRITE);
+        Lock pathStoreAccess = this.lockOf(this.storeFileLock);
+        pathStoreAccess.lock();
+        try (var storeFileChannel = FileChannel.open(this.storeFileLock, READ, WRITE);
              var storeLock = storeFileChannel.lock()) {
 
+            Lock pathAccess;
+            Path filePath;
             for ( T t : list ) {
-                try (var fileChannel = FileChannel.open(this.filePathOf(t), READ, WRITE, CREATE);
+                filePath = this.filePathOf(t);
+                pathAccess = this.lockOf(filePath);
+                pathAccess.lock();
+                try (var fileChannel = FileChannel.open(filePath, READ, WRITE, CREATE);
                      var os = Channels.newOutputStream(fileChannel);
                      var objectOutputStream = new ObjectOutputStream(os);
                      var lock = fileChannel.lock()) {
                     objectOutputStream.writeObject(t);
+                }
+                finally {
+                    pathAccess.unlock();
                 }
             }
         }
         catch (IOException e) {
             throw new ObjectStoreException(e);
         }
+        finally {
+            pathStoreAccess.unlock();
+        }
     }
 
     @Override
     public synchronized boolean remove(K key) {
-        Path path = this.filePathOf(key);
-        try (var storeFileChannel = FileChannel.open(this.storeLock, READ, WRITE);
+        Path filePath = this.filePathOf(key);
+
+        Lock pathStoreAccess = this.lockOf(this.storeFileLock);
+        Lock pathAccess = this.lockOf(filePath);
+
+        pathStoreAccess.lock();
+        pathAccess.lock();
+        try (var storeFileChannel = FileChannel.open(this.storeFileLock, READ, WRITE);
              var storeLock = storeFileChannel.lock();
-             var fileChannel = FileChannel.open(path, READ, WRITE);
+             var fileChannel = FileChannel.open(filePath, READ, WRITE);
              var is = Channels.newInputStream(fileChannel);
              var objectInputStream = new ObjectInputStream(is);
              var lock = fileChannel.lock()) {
 
-            Files.deleteIfExists(path);
+            Files.deleteIfExists(filePath);
             return true;
         }
         catch (NoSuchFileException e) {
@@ -285,6 +357,10 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         }
         catch (IOException e) {
             throw new ObjectStoreException(e);
+        }
+        finally {
+            pathAccess.unlock();
+            pathStoreAccess.unlock();
         }
     }
 
@@ -295,15 +371,21 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
                 .map(this::filePathOf)
                 .collect(Collectors.toList());
 
-        try (var storeFileChannel = FileChannel.open(this.storeLock, READ, WRITE);
+        Lock pathStoreAccess = this.lockOf(this.storeFileLock);
+        pathStoreAccess.lock();
+        try (var storeFileChannel = FileChannel.open(this.storeFileLock, READ, WRITE);
              var storeLock = storeFileChannel.lock();) {
 
+            Lock pathAccess;
             for ( Path path : paths ) {
+                pathAccess = this.lockOf(path);
+                pathAccess.lock();
                 try (var fileChannel = FileChannel.open(path, READ, WRITE);
-                     var is = Channels.newInputStream(fileChannel);
-                     var objectInputStream = new ObjectInputStream(is);
                      var lock = fileChannel.lock()) {
                     Files.deleteIfExists(path);
+                }
+                finally {
+                    pathAccess.unlock();
                 }
             }
 
@@ -315,11 +397,16 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         catch (IOException e) {
             throw new ObjectStoreException(e);
         }
+        finally {
+            pathStoreAccess.unlock();
+        }
     }
 
     @Override
     public synchronized void clear() {
-        try (var fileChannel = FileChannel.open(this.storeLock, READ, WRITE);
+        Lock pathStoreAccess = this.lockOf(this.storeFileLock);
+        pathStoreAccess.lock();
+        try (var fileChannel = FileChannel.open(this.storeFileLock, READ, WRITE);
              var storeLock = fileChannel.lock();
              var files = Files.list(directory)) {
             files
@@ -335,6 +422,9 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
         }
         catch (IOException e) {
             throw new ObjectStoreException(e);
+        }
+        finally {
+            pathStoreAccess.unlock();
         }
     }
 
@@ -404,7 +494,7 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
 
     private void transmitChangeToListenersOrSkip(WatchEvent.Kind changeKind, Path changedPath) {
         boolean skip = changedPath.equals(this.directory) ||
-                changedPath.equals(this.storeLock) ||
+                changedPath.equals(this.storeFileLock) ||
                 this.notBelongToStore(changedPath);
 
         if ( skip ) {

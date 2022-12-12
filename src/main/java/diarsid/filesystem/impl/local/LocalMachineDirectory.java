@@ -1,21 +1,27 @@
 package diarsid.filesystem.impl.local;
 
+import java.io.Serializable;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.function.Consumer;
 
 import diarsid.filesystem.api.Directory;
 import diarsid.filesystem.api.FSEntry;
 import diarsid.filesystem.api.File;
 import diarsid.filesystem.api.FileSystem;
+import diarsid.support.exceptions.UnsupportedLogicException;
+import diarsid.support.objects.references.Result;
 
 import static java.util.Collections.emptyList;
 import static java.util.stream.Collectors.toList;
+
+import static diarsid.filesystem.api.NoResultReason.PATH_NOT_EXISTS;
+import static diarsid.filesystem.api.NoResultReason.PATH_NOT_POSSIBLE;
 
 public class LocalMachineDirectory implements Directory {
 
@@ -58,18 +64,79 @@ public class LocalMachineDirectory implements Directory {
     }
 
     @Override
+    public void lockAndDo(Runnable toDoInLock) {
+        throw new UnsupportedLogicException();
+    }
+
+    @Override
     public void showInDefaultFileManager() {
         this.fileSystem.showInDefaultFileManager(this);
     }
 
     @Override
-    public Optional<Directory> parent() {
-        return Optional.empty();
+    public Result<Directory> parent() {
+        return Result.empty(PATH_NOT_POSSIBLE);
     }
 
     @Override
-    public Optional<Directory> firstExistingParent() {
-        return Optional.empty();
+    public Result<FSEntry> toFSEntry(Path path) {
+        return this.fileSystem.toFSEntry(path);
+    }
+
+    @Override
+    public Result<File> file(String name) {
+        throw new UnsupportedOperationException("This directory is machine");
+    }
+
+    @Override
+    public boolean hasFile(String name) {
+        return false;
+    }
+
+    @Override
+    public boolean hasDirectory(String name) {
+        for ( Path root : this.roots ) {
+            if ( root.toString().startsWith(name) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public Result<File> fileCreateIfNotExists(String name) {
+        throw new UnsupportedOperationException("This directory is machine");
+    }
+
+    @Override
+    public Result<Directory> directory(String name) {
+        for ( Path root : this.roots ) {
+            if ( root.toString().equalsIgnoreCase(name) ) {
+                return this.fileSystem.toDirectory(root);
+            }
+        }
+        return Result.empty(PATH_NOT_EXISTS);
+    }
+
+    @Override
+    public Result<Directory> directoryCreateIfNotExists(String name) {
+        Result<Directory> directory = this.directory(name);
+
+        if ( directory.isPresent() ) {
+            return directory;
+        }
+
+        return Result.empty(PATH_NOT_POSSIBLE);
+    }
+
+    @Override
+    public long countChildren() {
+        return this.roots.size();
+    }
+
+    @Override
+    public Result<Directory> firstExistingParent() {
+        return Result.empty(PATH_NOT_POSSIBLE);
     }
 
     @Override
@@ -131,6 +198,18 @@ public class LocalMachineDirectory implements Directory {
         List<FSEntry> entries = this.roots
                 .stream()
                 .map(this.fileSystem::toLocalFSEntry)
+                .sorted()
+                .collect(toList());
+
+        consumer.accept(entries);
+    }
+
+    @Override
+    public void feedChildren(Consumer<List<FSEntry>> consumer, Comparator<FSEntry> comparator) {
+        List<FSEntry> entries = this.roots
+                .stream()
+                .map(this.fileSystem::toLocalFSEntry)
+                .sorted(comparator)
                 .collect(toList());
 
         consumer.accept(entries);
@@ -142,6 +221,19 @@ public class LocalMachineDirectory implements Directory {
                 .stream()
                 .filter(this.fileSystem::isDirectory)
                 .map(this.fileSystem::toLocalDirectory)
+                .sorted()
+                .collect(toList());
+
+        consumer.accept(directories);
+    }
+
+    @Override
+    public void feedDirectories(Consumer<List<Directory>> consumer, Comparator<Directory> comparator) {
+        List<Directory> directories = this.roots
+                .stream()
+                .filter(this.fileSystem::isDirectory)
+                .map(this.fileSystem::toLocalDirectory)
+                .sorted(comparator)
                 .collect(toList());
 
         consumer.accept(directories);
@@ -153,6 +245,18 @@ public class LocalMachineDirectory implements Directory {
                 .stream()
                 .filter(this.fileSystem::isFile)
                 .map(this.fileSystem::toLocalFile)
+                .collect(toList());
+
+        consumer.accept(files);
+    }
+
+    @Override
+    public void feedFiles(Consumer<List<File>> consumer, Comparator<File> comparator) {
+        List<File> files = this.roots
+                .stream()
+                .filter(this.fileSystem::isFile)
+                .map(this.fileSystem::toLocalFile)
+                .sorted(comparator)
                 .collect(toList());
 
         consumer.accept(files);
@@ -179,8 +283,28 @@ public class LocalMachineDirectory implements Directory {
     }
 
     @Override
+    public Result.Void remove(String name) {
+        throw new UnsupportedOperationException("This directory is root");
+    }
+
+    @Override
     public boolean canBe(Edit edit) {
         return false;
+    }
+
+    @Override
+    public Result<File> writeAsFile(String fileName, Serializable object) {
+        throw new UnsupportedOperationException("This directory is machine");
+    }
+
+    @Override
+    public <T> Result<T> readFromFile(String fileName, Class<T> type) {
+        throw new UnsupportedOperationException("This directory is machine");
+    }
+
+    @Override
+    public Result<Object> readFromFile(String fileName) {
+        throw new UnsupportedOperationException("This directory is machine");
     }
 
     @Override

@@ -1,4 +1,4 @@
-package diarsid.files.objectstore;
+package diarsid.files.objects.store;
 
 import java.util.ArrayList;
 import java.util.HashMap;

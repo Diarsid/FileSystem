@@ -1,4 +1,4 @@
-package diarsid.files.objectstore;
+package diarsid.files.objects.store;
 
 import java.nio.file.Paths;
 import java.util.List;
