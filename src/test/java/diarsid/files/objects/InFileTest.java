@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class InFileTest {
 
-    private static final InFile.Initializer<String> STRING_INITIALIZER = new InFile.Initializer<String>() {
+    private static final InFile.Initializer<String> STRING_INITIALIZER = new InFile.Initializer<>() {
 
         @Override
         public Class<String> type() {
@@ -176,6 +176,32 @@ public class InFileTest {
 
         assertThat(invoked).isTrue();
         assertThat(inFile.read().s).isEqualTo("modified");
+    }
+
+    @Test
+    public void readAndWriteRefData() throws Exception {
+        Path file = Paths.get("D:/DEV/test/ref-data-in-file");
+        Files.deleteIfExists(file);
+
+        InFile.Initializer<RefData> refDataInitializer = new InFile.Initializer<>() {
+
+            @Override
+            public Class<RefData> type() {
+                return RefData.class;
+            }
+
+            @Override
+            public RefData onFileCreatedGetInitial() {
+                return new RefData("initial");
+            }
+        };
+
+        InFile<RefData> inFile = new InFile<>(file, refDataInitializer);
+        assertThat(inFile.read().s).isEqualTo("initial");
+
+        inFile.write(new RefData("write-after-read"));
+
+        assertThat(inFile.read().s).isEqualTo("write-after-read");
     }
 
     @Test

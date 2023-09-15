@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +46,7 @@ public class LocalDirectoryWatcher extends AbstractStatefulDestroyableWorker imp
     private final BiConsumer<WatchEvent.Kind<?>, Path> callback;
     private final ExecutorService async;
     private final CallbackSynchronization sync;
+    private final Predicate<Path> filter;
     private WatchService watchService;
 
     public LocalDirectoryWatcher(
@@ -61,9 +63,25 @@ public class LocalDirectoryWatcher extends AbstractStatefulDestroyableWorker imp
     }
 
     public LocalDirectoryWatcher(
+            Directory directory,
+            BiConsumer<WatchEvent.Kind<?>, Path> callback,
+            CallbackSynchronization sync,
+            Predicate<Path> filter) {
+        this(directory.path(), callback, sync, filter);
+    }
+
+    public LocalDirectoryWatcher(
             Path path,
             BiConsumer<WatchEvent.Kind<?>, Path> callback,
             CallbackSynchronization sync) {
+        this(path, callback, sync, (testedPath) -> true);
+    }
+
+    LocalDirectoryWatcher(
+            Path path,
+            BiConsumer<WatchEvent.Kind<?>, Path> callback,
+            CallbackSynchronization sync,
+            Predicate<Path> filter) {
         super(format("path[%s]", path));
         if ( ! Files.isDirectory(path) ) {
             throw new IllegalArgumentException();
@@ -74,6 +92,7 @@ public class LocalDirectoryWatcher extends AbstractStatefulDestroyableWorker imp
                 LocalDirectoryWatcher.class.getSimpleName() + "[" + this.path.toString() + "].%s");
         this.async = Executors.newFixedThreadPool(1, threadFactory);;
         this.sync = sync;
+        this.filter = filter;
     }
 
     @Override
@@ -106,6 +125,11 @@ public class LocalDirectoryWatcher extends AbstractStatefulDestroyableWorker imp
     private void asyncWatching() {
         WatchKey watchKey;
         boolean watchIsActive = true;
+
+        Path filePath;
+        Path dir;
+        Path path;
+
         while ( super.isWorkingOrTransitingToWorking() && watchIsActive ) {
             try {
                 watchKey = this.watchService.take();
@@ -117,30 +141,32 @@ public class LocalDirectoryWatcher extends AbstractStatefulDestroyableWorker imp
             try {
                 List<WatchEvent<?>> watchEventList = watchKey.pollEvents();
                 for ( WatchEvent<?> watchEvent : watchEventList ) {
-                    Path filePath = (Path) watchEvent.context();
-                    Path dir = (Path) watchKey.watchable();
-                    Path path = dir.resolve(filePath).toAbsolutePath();
+                    filePath = (Path) watchEvent.context();
+                    dir = (Path) watchKey.watchable();
+                    path = dir.resolve(filePath).toAbsolutePath();
 
-                    switch ( this.sync ) {
-                        case PER_JVM:
-                            synchronized (STATIC_CALLBACK_MONITOR) {
+                    if ( this.filter.test(path) ) {
+                        switch ( this.sync ) {
+                            case PER_JVM:
+                                synchronized (STATIC_CALLBACK_MONITOR) {
+                                    this.callback.accept(watchEvent.kind(), path);
+                                }
+                                break;
+                            case PER_WATCHER:
+                                synchronized ( this ) {
+                                    this.callback.accept(watchEvent.kind(), path);
+                                }
+                                break;
+                            case NONE:
                                 this.callback.accept(watchEvent.kind(), path);
-                            }
-                            break;
-                        case PER_WATCHER:
-                            synchronized ( this ) {
-                                this.callback.accept(watchEvent.kind(), path);
-                            }
-                            break;
-                        case NONE:
-                            this.callback.accept(watchEvent.kind(), path);
-                            break;
-                        default:
-                            log.warn(format("%s '%s' in %s[%s] is not supported!",
-                                    CallbackSynchronization.class.getSimpleName(),
-                                    this.sync,
-                                    LocalDirectoryWatcher.class.getSimpleName(),
-                                    this.path));
+                                break;
+                            default:
+                                log.warn(format("%s '%s' in %s[%s] is not supported!",
+                                        CallbackSynchronization.class.getSimpleName(),
+                                        this.sync,
+                                        LocalDirectoryWatcher.class.getSimpleName(),
+                                        this.path));
+                        }
                     }
                 }
 

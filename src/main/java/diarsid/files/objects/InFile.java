@@ -2,8 +2,11 @@ package diarsid.files.objects;
 
 import java.io.IOException;
 import java.io.InvalidClassException;
+import java.io.NotSerializableException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.Serializable;
+import java.io.WriteAbortedException;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileAlreadyExistsException;
@@ -24,6 +27,7 @@ import diarsid.files.PathReentrantLock;
 import diarsid.files.objects.exceptions.ObjectInFileClassException;
 import diarsid.files.objects.exceptions.ObjectInFileCreateCollisionException;
 import diarsid.files.objects.exceptions.ObjectInFileException;
+import diarsid.files.objects.exceptions.ObjectInFileNotSerializableException;
 import diarsid.filesystem.api.Directory;
 import diarsid.support.model.CreatedAt;
 import diarsid.support.model.Identity;
@@ -91,15 +95,20 @@ public class InFile<T>
         this.name = path.getFileName().toString();
         this.type = initializer.type();
 
+        if ( ! Serializable.class.isAssignableFrom(this.type) ) {
+            throw new ObjectInFileNotSerializableException(this.type);
+        }
+
         if ( Files.isDirectory(this.path) ) {
             throw new IllegalArgumentException(format("Path '%s' is directory!", this.path));
         }
 
         this.access.lock();
         try (var fileChannel = FileChannel.open(this.path, READ, WRITE);
-             var is = Channels.newInputStream(fileChannel);
-             var ois = new ObjectInputStream(is);
              var lock = fileChannel.lock()) {
+
+            var is = Channels.newInputStream(fileChannel);
+            var ois = new ObjectInputStream(is);
 
             T currentT = (T) ois.readObject();
             this.lastT = currentT;
@@ -110,13 +119,16 @@ public class InFile<T>
         }
         catch (NoSuchFileException eOnRead) {
             try (var fileChannel = FileChannel.open(this.path, READ, WRITE, CREATE_NEW);
-                 var os = Channels.newOutputStream(fileChannel);
-                 var oos = new ObjectOutputStream(os);
                  var lock = fileChannel.lock()) {
 
                 T newT = initializer.onFileCreatedGetInitial();
+
+                var os = Channels.newOutputStream(fileChannel);
+                var oos = new ObjectOutputStream(os);
+
                 oos.writeObject(newT);
                 oos.flush();
+
                 this.lastT = newT;
             }
             catch (FileAlreadyExistsException eOnWrite) {
@@ -125,6 +137,17 @@ public class InFile<T>
             catch (IOException eOnWrite) {
                 throw new ObjectInFileException(eOnWrite);
             }
+        }
+        catch (WriteAbortedException eOnRead) {
+            if ( eOnRead.detail instanceof NotSerializableException ) {
+                this.write(initializer.onFileCreatedGetInitial());
+            }
+            else {
+                throw new ObjectInFileException(eOnRead);
+            }
+        }
+        catch (NotSerializableException eOnRead) {
+            this.write(initializer.onFileCreatedGetInitial());
         }
         catch (IOException eOnRead) {
             throw new ObjectInFileException(eOnRead);
@@ -143,12 +166,14 @@ public class InFile<T>
     public T read() {
         this.access.lock();
         try (var fileChannel = FileChannel.open(this.path, READ, WRITE);
-             var is = Channels.newInputStream(fileChannel);
-             var ois = new ObjectInputStream(is);
              var lock = fileChannel.lock()) {
+
+            var is = Channels.newInputStream(fileChannel);
+            var ois = new ObjectInputStream(is);
 
             T currentT = (T) ois.readObject();
             this.lastT = currentT;
+
             return currentT;
         }
         catch (InvalidClassException | ClassCastException | ClassNotFoundException e) {
@@ -156,9 +181,10 @@ public class InFile<T>
         }
         catch (NoSuchFileException e) {
             try (var fileChannel = FileChannel.open(this.path, READ, WRITE, CREATE_NEW);
-                 var os = Channels.newOutputStream(fileChannel);
-                 var oos = new ObjectOutputStream(os);
                  var lock = fileChannel.lock()) {
+
+                var os = Channels.newOutputStream(fileChannel);
+                var oos = new ObjectOutputStream(os);
 
                 oos.writeObject(this.lastT);
                 oos.flush();
