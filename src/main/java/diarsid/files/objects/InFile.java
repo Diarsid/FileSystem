@@ -33,6 +33,7 @@ import diarsid.support.model.CreatedAt;
 import diarsid.support.model.Identity;
 import diarsid.support.model.Named;
 import diarsid.support.model.UpdatedAt;
+import diarsid.support.objects.CommonEnum;
 import diarsid.support.objects.references.Reference;
 import diarsid.support.objects.references.References;
 
@@ -44,6 +45,8 @@ import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
 import static java.util.Objects.requireNonNull;
 
+import static diarsid.files.objects.InFile.Initializer.OnClassExceptionDo.REWRITE_WITH_INITIAL;
+import static diarsid.files.objects.InFile.Initializer.OnClassExceptionDo.THROW;
 import static diarsid.support.objects.references.Reference.Type.VALUE;
 import static diarsid.support.objects.references.Reference.ValuePresence.NULLABLE;
 
@@ -58,6 +61,12 @@ public class InFile<T>
 
     public interface Initializer<T> extends Supplier<Class<T>> {
 
+        public static enum OnClassExceptionDo implements CommonEnum<OnClassExceptionDo> {
+
+            THROW,
+            REWRITE_WITH_INITIAL
+        }
+
         Class<T> type();
 
         default T onFileCreatedGetInitial() {
@@ -66,6 +75,10 @@ public class InFile<T>
 
         default void onFileAlreadyExists(T existingT) {
             // nothing
+        }
+
+        default OnClassExceptionDo doOnClassException(Throwable t) {
+            return OnClassExceptionDo.THROW;
         }
 
         @Override
@@ -115,7 +128,18 @@ public class InFile<T>
             initializer.onFileAlreadyExists(currentT);
         }
         catch (InvalidClassException | ClassCastException | ClassNotFoundException e) {
-            throw new ObjectInFileClassException(this.path, e);
+            Initializer.OnClassExceptionDo toDo = initializer.doOnClassException(e);
+
+            if ( toDo.is(THROW) ) {
+                throw new ObjectInFileClassException(this.path, e);
+            }
+
+            if ( toDo.is(REWRITE_WITH_INITIAL) ) {
+                this.write(initializer.onFileCreatedGetInitial());
+                return;
+            }
+
+            throw toDo.unsupported();
         }
         catch (NoSuchFileException eOnRead) {
             try (var fileChannel = FileChannel.open(this.path, READ, WRITE, CREATE_NEW);
