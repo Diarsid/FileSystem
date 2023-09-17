@@ -29,6 +29,7 @@ import diarsid.support.concurrency.threads.NamedThreadSource;
 import diarsid.support.objects.references.Result;
 
 import static java.awt.Desktop.getDesktop;
+import static java.lang.System.getProperty;
 import static java.nio.file.StandardCopyOption.COPY_ATTRIBUTES;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
@@ -192,6 +193,17 @@ public class LocalFileSystem implements FileSystem {
         else {
             return this.toLocalFile(path);
         }
+    }
+
+    @Override
+    public Result<Directory> userHomeDirectory() {
+        String userHome = getProperty("user.home");
+
+        if ( isNull(userHome) || userHome.isEmpty() || userHome.isBlank() ) {
+            return Result.empty("User home is not defined!");
+        }
+
+        return this.toDirectory(userHome);
     }
 
     @Override

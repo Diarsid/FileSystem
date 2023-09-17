@@ -58,6 +58,8 @@ public interface FileSystem {
         return this.toDirectory(Paths.get(path));
     }
 
+    Result<Directory> userHomeDirectory();
+
     Result<Directory> toDirectory(Path path);
 
     Result<Directory> toDirectoryCreateIfNotExists(Path path);
