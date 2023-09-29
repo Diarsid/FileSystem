@@ -19,6 +19,19 @@ public class InFileWatched<T> extends InFile<T> implements Closeable {
     private final Consumer<T> changeListener;
     private final AtomicReference<T> lastT;
 
+    public InFileWatched(String name, Initializer<T> initializer, Consumer<T> changeListener) {
+        super(name, initializer);
+        this.changeListener = changeListener;
+        this.lastT = new AtomicReference<>(this.read());
+
+        this.fileWatcher = new LocalFileWatcher(
+                super.path().getParent().resolve(name),
+                this::acceptAndPropagateChange,
+                PER_WATCHER);
+
+        this.fileWatcher.startWork();
+    }
+
     public InFileWatched(Directory directory, String name, Class<T> type, Consumer<T> changeListener) {
         super(directory, name, type);
         this.changeListener = changeListener;

@@ -4,7 +4,7 @@ import diarsid.files.FileInvoker;
 
 import static java.lang.String.format;
 
-public class InvokeException extends RuntimeException {
+public class InvokeException extends FileSystemException {
 
     private final String target;
     private final FileInvoker.TargetType targetType;

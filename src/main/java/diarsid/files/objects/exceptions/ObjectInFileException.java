@@ -1,7 +1,5 @@
 package diarsid.files.objects.exceptions;
 
-import java.nio.file.Path;
-
 public class ObjectInFileException extends RuntimeException {
 
     public ObjectInFileException() {

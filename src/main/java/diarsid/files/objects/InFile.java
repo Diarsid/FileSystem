@@ -45,6 +45,7 @@ import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
 import static java.util.Objects.requireNonNull;
 
+import static diarsid.filesystem.api.DefaultDirectories.directoryOfCanonicalClassNameInJavaUserHome;
 import static diarsid.files.objects.InFile.Initializer.OnClassExceptionDo.REWRITE_WITH_INITIAL;
 import static diarsid.files.objects.InFile.Initializer.OnClassExceptionDo.THROW;
 import static diarsid.support.objects.references.Reference.Type.VALUE;
@@ -92,6 +93,13 @@ public class InFile<T>
     private final String name;
     private final Class<T> type;
     private volatile T lastT;
+
+    public InFile(String name, Initializer<T> initializer) {
+        this(
+                directoryOfCanonicalClassNameInJavaUserHome(initializer.type()),
+                name,
+                initializer);
+    }
 
     public InFile(Directory directory, String name, Class<T> type) {
         this(directory.path().resolve(name), () -> type);

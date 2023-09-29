@@ -35,6 +35,7 @@ import diarsid.files.objects.exceptions.ObjectInFileNotFoundException;
 import diarsid.files.objects.exceptions.ObjectInFileNotReadableException;
 import diarsid.files.objects.store.exceptions.NoStoreDirectoryException;
 import diarsid.files.objects.store.exceptions.ObjectStoreException;
+import diarsid.filesystem.api.Directory;
 import diarsid.support.concurrency.threads.IncrementNamedThreadFactory;
 import diarsid.support.model.Identity;
 
@@ -47,6 +48,7 @@ import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
 import static java.util.stream.Collectors.toUnmodifiableList;
 
+import static diarsid.filesystem.api.DefaultDirectories.directoryOfCanonicalClassNameInJavaUserHome;
 import static diarsid.support.concurrency.threads.ThreadsUtil.shutdownAndWait;
 
 public class FileObjectStore<K extends Serializable, T extends Identity<K>> implements ObjectStore<K, T> {
@@ -65,6 +67,14 @@ public class FileObjectStore<K extends Serializable, T extends Identity<K>> impl
     private final ConcurrentHashMap<UUID, Listener.OnRemoved> removedListeners;
     private final ConcurrentHashMap<UUID, Listener.OnChanged<K, T>> changedListeners;
     private final Logger log;
+
+    public FileObjectStore(Class<T> tClass) {
+        this(directoryOfCanonicalClassNameInJavaUserHome(tClass).path(), tClass);
+    }
+
+    public FileObjectStore(Directory directory, Class<T> tClass) {
+        this(directory.path(), tClass);
+    }
 
     public FileObjectStore(Path directory, Class<T> tClass) {
         if ( ! Files.exists(directory) ) {

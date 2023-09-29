@@ -9,6 +9,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.Test;
 
+import static java.util.Objects.isNull;
+import static java.util.Objects.nonNull;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class InFileTest {
@@ -33,6 +36,32 @@ public class InFileTest {
 
         InFile<String> inFile = new InFile<>(file, STRING_INITIALIZER);
 
+        assertThat(inFile.read()).isEqualTo("initial");
+
+        inFile.write(null);
+        assertThat(inFile.read()).isNull();
+
+        inFile.write("next");
+        assertThat(inFile.read()).isEqualTo("next");
+
+        assertThat(inFile.extractOrNull()).isEqualTo("next");
+        assertThat(inFile.read()).isNull();
+        assertThat(inFile.extractOrNull()).isNull();
+
+        assertThat(inFile.ifPresentResetTo("new")).isNull();
+        assertThat(inFile.read()).isNull();
+
+        assertThat(inFile.ifNotPresentResetTo("new")).isNull();
+        assertThat(inFile.read()).isEqualTo("new");
+    }
+
+    @Test
+    public void cases_createDefaultJavaDirectoryInUserHome() throws Exception {
+        InFile<String> inFile = new InFile<>("string-in-file", STRING_INITIALIZER);
+
+        inFile.nullify();
+
+        inFile.write("initial");
         assertThat(inFile.read()).isEqualTo("initial");
 
         inFile.write(null);
