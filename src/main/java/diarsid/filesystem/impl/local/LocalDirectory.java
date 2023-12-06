@@ -51,7 +51,12 @@ class LocalDirectory implements Directory, ChangeableFSEntry {
 
     LocalDirectory(Path path, FileSystem fileSystem) {
         this.fileSystem = fileSystem;
-        this.path = path.toAbsolutePath();
+        if ( path.isAbsolute() ) {
+            this.path = path;
+        }
+        else {
+            this.path = path.toAbsolutePath();
+        }
         this.name = getNameFrom(path);
         this.fullName = this.path.toString();
     }

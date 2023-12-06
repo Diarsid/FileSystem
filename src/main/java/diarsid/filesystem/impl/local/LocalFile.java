@@ -1,9 +1,7 @@
 package diarsid.filesystem.impl.local;
 
 import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.io.Serializable;
-import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,12 +32,15 @@ class LocalFile implements File, ChangeableFSEntry {
 
     private final Path path;
     private final String name;
-    private final String fullName;
 
     LocalFile(Path path, FileSystem fileSystem) {
-        this.path = path;
-        this.name = path.getFileName().toString();
-        this.fullName = path.toAbsolutePath().toString();
+        if ( path.isAbsolute() ) {
+            this.path = path;
+        }
+        else {
+            this.path = path.toAbsolutePath();
+        }
+        this.name = this.path.getFileName().toString();
         this.fileSystem = fileSystem;
         fileSystem.isFile(this.path);
     }

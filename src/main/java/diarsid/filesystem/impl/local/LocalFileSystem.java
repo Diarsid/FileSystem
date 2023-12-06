@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
@@ -29,6 +31,7 @@ import diarsid.support.concurrency.threads.NamedThreadSource;
 import diarsid.support.objects.references.Result;
 
 import static java.awt.Desktop.getDesktop;
+import static java.lang.System.currentTimeMillis;
 import static java.lang.System.getProperty;
 import static java.nio.file.StandardCopyOption.COPY_ATTRIBUTES;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
@@ -889,9 +892,7 @@ public class LocalFileSystem implements FileSystem {
         try {
              return Files
                      .list(localDirectory.path())
-                     .map(this::toFSEntry)
-                     .filter(Result::isPresent)
-                     .map(Result::get)
+                     .map(this::toLocalFSEntry)
                      .filter(this.notIgnored);
         }
         catch (AccessDeniedException denied) {
